@@ -1,19 +1,20 @@
-# WeebSH cog for Red-DiscordBot by Twentysix, an
+# Anime cog for Red-DiscordBot by Twentysix, an
 #  open-source discord bot (github.com/Cog-Creators/Red-DiscordBot)
 # Authored by Swann (github.com/swannobi)
+# Route class heavily based on work by martmists' original work on the ram.moe wrapper
 # Last updated Sept 25, 2017
 
 import discord
 from discord.ext import commands
 import aiohttp
+import io
+import requests
 import sys
 import os
 import random
 from .utils import checks
 from .utils.dataIO import dataIO
 from __main__ import send_cmd_help
-from .utils.async import Route
-from .utils.sync import ResponseError
 
 # This list intentionally left blank.
 TYPES=[]
@@ -22,20 +23,18 @@ class WeebSh:
     """Responsible for requesting the weeb.sh API to serve anime reaction images."""
 
     def __init__(self, bot):
-        print("Loading anime...")
         self.bot = bot
         self.settings_file = "data/weeb/settings.json"
         self.settings = dataIO.load_json(self.settings_file)
         self.api_key = self.settings['WEEB_SH_API_KEY']
-        # Weeb.sh
+        # Weeb.sh endpoints
         self.api_url = "https://api.weeb.sh/"
         self.cdn_url = "https://cdn.weeb.sh/"
         self.base_uri = "images/"
         self.tags_uri = "images/tags"
         self.types_uri = "images/types"
         self.random_uri = "images/random"
-        # Request headers
-        # If you don't have an auth key, get one from Wolke!
+        # Request headers If you don't have an auth key, get one from Wolke!
         self.headers = {"Authorization":"Bearer "+str(self.api_key),"Content-Type":"application/json"}
         # Dynmically load valid types when cog is loaded
         try:
@@ -44,7 +43,7 @@ class WeebSh:
             # Workaround. self attributes are outside the scope 
             #  of the discord.ext.commands decorator.
             TYPES.extend(self.types)
-            # Set the tags; TODO currently unused.
+            # TODO Tags are currently unused, but they are also relatively new to the API.
             self.tags = self._get(self.api_url, self.tags_uri, self.headers).sync_query()["tags"]
             self.nsfw_tags = self._get(self.api_url, self.tags_uri+"?nsfw=true", self.headers).sync_query()["tags"]
             # Get the current API information as of the time this cog was loaded.
@@ -67,13 +66,14 @@ class WeebSh:
         path = self.random_uri + "?type=" + imgtype + "&nsfw=" + nsfw
         try:
             result = self._get(self.api_url, path, self.headers).sync_query()
+            # Form the embed
             data = discord.Embed()
             if description != "":
                 data.description = description 
             if random:
                 data.title = "Randomly chose: "+imgtype
             data.set_image(url=result["url"])
-            data.set_footer(text="Powered by Wolfe's weeb.sh")
+            data.set_footer(text="Powered by Wolke's weeb.sh")
             await self.bot.say(embed=data)
         # Fails silently & dumps to console whenever the query returns a non-200-level http code.
         except ResponseError as err:
@@ -107,7 +107,14 @@ class WeebSh:
     @commands.command(pass_context=False)
     async def weebinfo(self):
         """Posts the weeb.sh gateway info."""
-        await self.bot.say(self.info)
+        try:
+            data = discord.Embed(description="Weeb.sh API Gateway")
+            data.add_field(name="Version", value=self.info["version"])
+            data.add_field(name="Info", value=self.info["message"])
+            data.set_footer(text="Created by Wolke & Akio")
+            await self.bot.say(embed=data)
+        except:
+            await self.bot.say(self.info)
 
     # Use this method to set your API key.
     @commands.command(pass_context=True, name='weebkey')
@@ -119,6 +126,30 @@ class WeebSh:
         await self.bot.delete_message(ctx.message)
         await self.bot.say("Weeb.sh API Key accepted.")
         self.__init__(self.bot)
+
+# Handles request routing
+# Thank you to https://github.com/martmists
+class Route:
+    def __init__(self, base_url, path, headers=None, method="GET"):
+        self.base_url = base_url
+        self.path = path
+        self.headers = headers
+        self.method = method
+
+    # Introspection: call the requests.get(url, headers) method
+    def sync_query(self, url_params=None):
+        result = getattr(requests, self.method.lower())(
+                self.base_url+self.path, headers=self.headers)
+        if 200 <= result.status_code < 300:
+            return result.json()
+        else:
+            raise ResponseError("Got an unsuccessful response code: {}".format(result.status_code))
+
+    def __call__(self, url_params=None):
+        return self.sync_query(url_params)
+
+class ResponseError(BaseException):
+    pass
 
 def check_folder():
     if not os.path.exists("data/weeb"):
@@ -137,3 +168,4 @@ def setup(bot):
     check_folder()
     check_file()
     bot.add_cog(WeebSh(bot))
+
