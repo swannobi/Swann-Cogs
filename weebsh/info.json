@@ -1,0 +1,9 @@
+{
+    "AUTHOR" : "Swann",
+    "SHORT" : "Cog to support weeb.sh by Wolke",
+    "DESCRIPTION" : "Wrapper for Wolke's anime image macro API, weeb.sh. Requires an API key!",
+    "DISABLED" : false,
+    "NAME" : "WeebSH",
+    "TAGS" : ["anime","weeb","weebsh","weeb.sh","ram.moe","fun"],
+    "INSTALL_MSG" : "Usage: `[p]<image|any_image_category>`"
+}
