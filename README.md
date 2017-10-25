@@ -2,7 +2,7 @@
 Cogs for birds and bird-people
 
 * *WeebSh*
-    * Weeb.sh is a content delivery network for anime reaction images. I've built a nice wrapper to allow your users to call it and post random reaction images keyed on "category." The Weeb.sh service categorizes all its images, and this cog pulls down the full list of categories on load. The categories are then translated to base-level command alias for the image command (i.e. [p]<any weeb.sh category>).
+    * Weeb.sh is a content delivery network for anime reaction images. I've built a nice wrapper to allow your users to call it and post random reaction images keyed on "category." The Weeb.sh service categorizes all its images, and this cog pulls down the full list of categories on load. The categories are then translated to base-level command alias for the image command (i.e. [p]\<any weeb.sh category>).
 
 * GarPR
     * Gar PR is a ranking system and tournament results archive for Super Smash Brothers Melee. It is based on Microsoft Trueskill, and supports tourament formats from Tio, Challonge, and SmashGG. It is now an open source project, and can be found at https://github.com/ripgarpr/garpr/
