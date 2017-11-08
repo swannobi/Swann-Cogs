@@ -1,7 +1,10 @@
 # Anime cog for Red-DiscordBot by Twentysix, an
-#  open-source discord bot (github.com/Cog-Creators/Red-DiscordBot)
+#   open-source discord bot (github.com/Cog-Creators/Red-DiscordBot)
+#
 # Authored by Swann (github.com/swannobi)
-# Route class heavily based on work by martmists' original work on the ram.moe wrapper
+#
+# Route class heavily based on martmists' original work on the ram.moe wrapper
+#
 # Last updated Sept 25, 2017
 
 import discord
@@ -17,6 +20,7 @@ from .utils.dataIO import dataIO
 from __main__ import send_cmd_help
 
 # This list intentionally left blank.
+# Global is required, see the comments in __init__ 
 TYPES=[]
 
 class WeebSh:
@@ -25,7 +29,7 @@ class WeebSh:
     def __init__(self, bot):
         self.bot = bot
         self.settings_file = "data/weeb/settings.json"
-        self.settings = dataIO.load_json(self.settings_file)
+        self.settings = dataIO.load_json( self.settings_file )
         self.api_key = self.settings['WEEB_SH_API_KEY']
         # Weeb.sh endpoints
         self.api_url = "https://api.weeb.sh/"
@@ -34,22 +38,24 @@ class WeebSh:
         self.tags_uri = "images/tags"
         self.types_uri = "images/types"
         self.random_uri = "images/random"
-        # Request headers If you don't have an auth key, get one from Wolke!
+        # Request headers: If you don't have an auth key, get one from Wolke!
         self.headers = {"Authorization":"Bearer "+str(self.api_key),"Content-Type":"application/json"}
-        # Dynmically load valid types when cog is loaded
+        # List of NSFW channels to enable NSFW content
+        self.NSFW_channels = self.settings['NSFW_CHANNELS'] 
+        # Dynamically load valid types when cog is loaded
         try:
-            self.types = self._get(self.api_url, self.types_uri, self.headers).sync_query()["types"]
-            self.nsfw_types = self._get(self.api_url, self.types_uri+"?nsfw=true", self.headers).sync_query()["types"]
-            # Workaround. self attributes are outside the scope 
-            #  of the discord.ext.commands decorator.
+            self.types = self._get( self.api_url, self.types_uri, self.headers ).sync_query()["types"]
+            self.nsfw_types = self._get( self.api_url, self.types_uri+"?nsfw=true", self.headers ).sync_query()["types"]
+            # Workaround for dynamic commands by weeb.sh type. Necessary because 
+            #   self attributes are outside the scope of the discord.ext.commands decorator.
             TYPES.extend(self.types)
-            # TODO Tags are currently unused, but they are also relatively new to the API.
-            self.tags = self._get(self.api_url, self.tags_uri, self.headers).sync_query()["tags"]
-            self.nsfw_tags = self._get(self.api_url, self.tags_uri+"?nsfw=true", self.headers).sync_query()["tags"]
+            # Tags are currently support experimentally. They are still relatively new to the API.
+            self.tags = self._get( self.api_url, self.tags_uri, self.headers ).sync_query()["tags"]
+            self.nsfw_tags = self._get( self.api_url, self.tags_uri+"?nsfw=true", self.headers ).sync_query()["tags"]
             # Get the current API information as of the time this cog was loaded.
-            self.info = self._get(self.api_url, self.base_uri, self.headers).sync_query()
+            self.info = self._get( self.api_url, self.base_uri, self.headers ).sync_query()
         except:
-            print("API Key is probably not set.")
+            print("There was an issue invoking the API. API Key is probably not set!")
 
     # Inner method to create the request object. Invoke it with .sync_query()
     def _get(self, api, uri, http_headers):
@@ -57,7 +63,7 @@ class WeebSh:
 
     # Responsible for invoking the request object and creating an Embed to post in the channel.
     # Uses embed.description instead of embed.title because apparently titles don't get 
-    #  evaluated/cleaned up. In a title you get <@123123123123> instead of @Swann. ¯\_(-_-)_/¯
+    #   evaluated/cleaned up. In a title you get <@123123123123> instead of @Swann. ¯\_(-_-)_/¯
     async def anime(self, imgtype, nsfw="false", random=False, description=""):
         """Posts an anime reaction image"""
         # Will fail silently if the user tries to invoke an invalid image type.
@@ -68,7 +74,7 @@ class WeebSh:
             result = self._get(self.api_url, path, self.headers).sync_query()
             # Form the embed
             data = discord.Embed()
-            if description != "":
+            if description:
                 data.description = description 
             if random:
                 data.title = "Randomly chose: "+imgtype
@@ -77,7 +83,6 @@ class WeebSh:
             await self.bot.say(embed=data)
         # Fails silently & dumps to console whenever the query returns a non-200-level http code.
         except ResponseError as err:
-            print("Query failed :(")
             print(err)
         # Fails loudly if the bot lacks the proper permissions.
         except discord.HTTPException:
@@ -92,19 +97,20 @@ class WeebSh:
             await send_cmd_help(ctx)
             return
         # NSFW images are enabled in NSFW channels.
-        # TODO once discord.py is updated, use Channel.is_nsfw().
-        if ctx.message.channel.name == "nsfw":
+        # TODO once discord.py is updated, this will be changed to use Channel.is_nsfw().
+        if ctx.message.channel.name in self.NSFW_channels:
             await self.anime( category, description=text, nsfw="true" )
         else:
             await self.anime( category, description=text )
 
-    # Calls the core anime() function with a random type.
+    # Calls the core anime() function with a random type. SFW.
+    # Feel free to change the name of this command.
     @commands.command(pass_context=True)
     async def random(self, ctx, *, text : str=None):
         """Picks a random image from a random category (SFW).""" 
         await self.anime( random.choice(self.types), random=True, description=text )
 
-    @commands.command(pass_context=False)
+    @commands.group(name="weeb", pass_context=True, invoke_without_command=True)
     async def weebinfo(self):
         """Posts the weeb.sh gateway info."""
         try:
@@ -113,22 +119,31 @@ class WeebSh:
             data.add_field(name="Info", value=self.info["message"])
             data.set_footer(text="Created by Wolke & Akio")
             await self.bot.say(embed=data)
-        except:
-            await self.bot.say(self.info)
+        except discord.HTTPException:
+            message = self.info["message"]+"\n"+"v."+self.info["version"]
+            await self.bot.say(message)
+
+    # Use this method to toggle the current channel NSFW
+    # TODO this will remain commented out until Red V3 is offically released.
+    #@weebinfo.command(name="toggleNsfw")
+    #@checks.mod_or_permissions()
+    #async def weebToggleNsfw(self):
+    #    await self.bot.say("Not implemented yet... V3/discord.py rewrite required")
 
     # Use this method to set your API key.
-    @commands.command(pass_context=True, name='weebkey')
+    @weebinfo.command(pass_context=True, name='key')
     @checks.is_owner()
     async def _weebkey(self, ctx, key : str):
         """Set your weeb.sh API key."""
         self.settings['WEEB_SH_API_KEY'] = key
         dataIO.save_json(self.settings_file, self.settings)
+        # Delete the message in case you posted this in a public channel (d'oh!).
         await self.bot.delete_message(ctx.message)
         await self.bot.say("Weeb.sh API Key accepted.")
+        # Re-initialize the cog. This reloads the aliases for [p]image.
         self.__init__(self.bot)
 
 # Handles request routing
-# Thank you to https://github.com/martmists
 class Route:
     def __init__(self, base_url, path, headers=None, method="GET"):
         self.base_url = base_url
@@ -138,7 +153,7 @@ class Route:
 
     # Introspection: call the requests.get(url, headers) method
     def sync_query(self, url_params=None):
-        result = getattr(requests, self.method.lower())(
+        result = getattr( requests, self.method.lower() )(
                 self.base_url+self.path, headers=self.headers)
         if 200 <= result.status_code < 300:
             return result.json()
@@ -158,7 +173,8 @@ def check_folder():
 
 def check_file():
     settings = {}
-    settings['WEEB_SH_API_KEY'] = "" 
+    settings['WEEB_SH_API_KEY'] = ""
+    settings['NSFW_CHANNELS'] = [] 
     f = "data/weeb/settings.json"
     if not dataIO.is_valid_json(f):
         print("Creating default settings.json...")
