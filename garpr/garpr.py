@@ -6,7 +6,7 @@
 #
 # Route class based on martmists' work on the ram.moe wrapper
 #
-# Last updated Oct 19, 2017
+# Last updated Nov 15, 2017
 
 import discord
 import os
@@ -20,19 +20,14 @@ from __main__ import send_cmd_help
 import urllib
 from types import SimpleNamespace
 
-RESOURCES = "data/smashing/"
-RANK_EMOTES = ["<:champion:261390756898537473>",
-               ":fire:",
-               "<:Melee:260154755706257408>",
-               ":ok_hand:"]
-
 class GarPR:
     """Contains most smash-based static commands"""
 
     def __init__(self, bot, resources_folder):
         self.bot = bot
         # Resources
-        self.settings = dataIO.load_json(RESOURCES+"garpr_settings.json")
+        self.resources = resources_folder
+        self.settings = dataIO.load_json(self.resources+"garpr_settings.json")
         self.rankings_uri = self.settings["region"]+"/rankings"
         self.players_uri = self.settings["region"]+"/players"
         self.matches_uri = self.settings["region"]+"/matches/"
@@ -40,27 +35,36 @@ class GarPR:
         self.url = "https://www.notgarpr.com/#/"
         self.data_url = "https://www.notgarpr.com:3001/"
         # Determine if rankings should be reloaded
-        cachedTournies = self.settings["tournaments on record"]
-        actualTournies = len(Route(base_url=self.data_url,path=self.tournaments_uri).sync_query()["tournaments"])
-        if cachedTournies != actualTournies:
+        if not self._checkgar():
+            # Load cached resources
+            self.rankings_cache = dataIO.load_json(self.resources+"garpr_rankings.json")
+            self.matchup_cache = dataIO.load_json(self.resources+"garpr_match_records.json")
+            self.players = dataIO.load_json(self.resources+"garpr_players.json")
+        # Set default garpr rank emotes
+        self.rank_emotes = self.settings["rank emotes"]
+
+    def _checkgar(self):
+        """Queries the regional garpr and checks if there have been any new tournaments logged 
+        since the last time it checked.
+
+        If so, it invalidates the cache and updates players/match records data."""
+        actualTournies = len(Route(base_url=self.data_url, path=self.tournaments_uri).sync_query()["tournaments"])
+        if( actualTournies != self.settings["tournaments on record"] ):
             # Invalidate cached resources
             self._refresh_cog()
             self.matchup_cache = {}
             self.settings["tournaments on record"] = actualTournies
-            dataIO.save_json(RESOURCES+"garpr_settings.json", self.settings)
-        else:
-            # Load cached resources
-            self.rankings_cache = dataIO.load_json(RESOURCES+"garpr_rankings.json")
-            self.matchup_cache = dataIO.load_json(RESOURCES+"garpr_match_records.json")
-            self.players = dataIO.load_json(RESOURCES+"garpr_players.json")
-
+            dataIO.save_json(self.resources+"garpr_settings.json", self.settings)
+            return True
+        return False
+    
     def _refresh_cog(self):
         """Attempt to sync the bot with the actual GarPR."""
         try:
             self.players = Route(base_url=self.data_url,path=self.players_uri).sync_query()
             self.rankings_cache = Route(base_url=self.data_url,path=self.rankings_uri).sync_query()
-            dataIO.save_json(RESOURCES+"garpr_players.json", self.players)
-            dataIO.save_json(RESOURCES+"garpr_rankings.json", self.rankings_cache)
+            dataIO.save_json(self.resources+"garpr_players.json", self.players)
+            dataIO.save_json(self.resources+"garpr_rankings.json", self.rankings_cache)
         except ResponseError as e:
             print("Couldn't properly refresh garpr. Some commands may not work as expected.")
             print(e)
@@ -80,7 +84,7 @@ class GarPR:
         # Otherwise, get it, store it in the cache
         playerdata = Route(base_url=self.data_url,path=self.matches_uri+playerid).sync_query()
         self.matchup_cache[playerid] = playerdata
-        dataIO.save_json(RESOURCES+"garpr_match_records.json", self.matchup_cache)
+        dataIO.save_json(self.resources+"garpr_match_records.json", self.matchup_cache)
         return playerdata
 
     def _get_playerid(self, player : str):
@@ -89,6 +93,14 @@ class GarPR:
             if player.lower() == entry["name"].lower():
                 return entry
         raise KeyError("Player not found: "+player)
+
+    @commands.command(pass_context=False, no_pm=True)
+    async def checkgar(self):
+        """Attempts to synchronize the bot with the data in garpr."""
+        if self._checkgar():
+            await self.bot.say("There were new tournaments... I just refreshed the cache. Data is synced now!")
+        else:
+            await self.bot.say("No new tournaments.")
 
     @commands.command(pass_context=True, no_pm=False)
     async def stats(self, ctx, *, player : str):
@@ -172,20 +184,19 @@ class GarPR:
                 if guy["name"] == playerinfo["name"]:
                     data.add_field(name="rank", value=guy["rank"])
                     if 1 == guy["rank"]:
-                        # TODO make the colors and emotes customizable
-                        data.colour = discord.Colour.dark_green()
-                        data.set_field_at(index=1, name="Rank:", value=str(guy["rank"])+RANK_EMOTES[0])
+                        data.colour = self.settings["rank colors"][0]
+                        data.set_field_at(index=1, name="Rank:", value=str(guy["rank"])+self.settings["rank emotes"][0])
                     elif 1 < guy["rank"] < 11:
-                        data.colour = discord.Colour.gold()
-                        data.set_field_at(index=1, name="Rank:", value=str(guy["rank"])+RANK_EMOTES[1])
+                        data.colour = self.settings["rank colors"][1] 
+                        data.set_field_at(index=1, name="Rank:", value=str(guy["rank"])+self.settings["rank emotes"][1])
                     elif 11 <= guy["rank"] < 26:
-                        data.colour = discord.Colour.light_grey()
-                        data.set_field_at(index=1, name="Rank:", value=str(guy["rank"])+RANK_EMOTES[2])
+                        data.colour = self.settings["rank colors"][2]
+                        data.set_field_at(index=1, name="Rank:", value=str(guy["rank"])+self.settings["rank emotes"][2])
                     elif 26 <= guy["rank"] < 51:
-                        data.colour = discord.Colour.purple()
-                        data.set_field_at(index=1, name="Rank:", value=str(guy["rank"])+RANK_EMOTES[3])
+                        data.colour = self.settings["rank colors"][3]
+                        data.set_field_at(index=1, name="Rank:", value=str(guy["rank"])+self.settings["rank emotes"][3])
                     elif 51 <= guy["rank"] < 101:
-                        data.colour = discord.Colour(0x998866)
+                        data.colour = self.settings["rank colors"][4]
             data.set_footer(text="notgarpr-discord integration by Swann")
             try:
                 await self.bot.say(embed=data) 
@@ -199,15 +210,92 @@ class GarPR:
         if ctx.invoked_subcommand is None:
             await send_cmd_help(ctx)
 
-    @garprset.command(pass_context=True, no_pm=False, name="region")
-    @checks.mod_or_permissions()
-    async def _region(self, ctx, state : str):
+    @garprset.command(pass_context=True)
+    async def region(self, ctx, state : str):
         """Sets the state for GarPR. Must match the GarPR URI exactly (e.g. "Central Florida" region is "cfl")."""
         self.settings["region"] = state
-        dataIO.save_json(RESOURCES+"garpr_settings.json", self.settings)
+        dataIO.save_json(self.resources+"garpr_settings.json", self.settings)
         # Invalidate all local caches
         await self.bot.say("Set new region: "+state+", refreshing data now...")
         await self._refresh_cog()
+
+    @garprset.command(pass_context=True)
+    async def icon(self, ctx):
+        """Sets the icons that display next to GarPR ranked (top 100) players."""
+        tiers = ["Rank 1", "Rank 2-10", "Rank 11-25", "Rank 26-50", "Rank 51-100"]
+        prompt = await self.bot.say("Current settings:\n(1) "+tiers[0]+" "+self.settings["rank emotes"][0]
+                +"\n(2) "+tiers[1]+" "+self.settings["rank emotes"][1]
+                +"\n(3) "+tiers[2]+" "+self.settings["rank emotes"][2]
+                +"\n(4) "+tiers[3]+" "+self.settings["rank emotes"][3]
+                +"\n(5) "+tiers[4]+" "+self.settings["rank emotes"][4]
+                +"\nFrom above, choose an option 1-5 to change!")
+        try:
+            answer = await self.bot.wait_for_message(timeout=60, author=ctx.message.author)
+            answer = int(re.sub(r'[^\d]', '', answer.content))
+            if answer < 0 or answer > 5:
+                await self.bot.edit_message(prompt, "Invalid choice")
+                return
+            await self.bot.edit_message(prompt, "Editing emote for ("+tiers[answer-1]+")\nWhich emote should display?")
+            emote = await self.bot.wait_for_message(timeout=60, author=ctx.message.author)
+            emote = emote.content
+        except:
+            await self.bot.edit_message(prompt, "Timed out.")
+            return
+        self.settings["rank emotes"][answer-1] = emote
+        dataIO.save_json(self.resources+"garpr_settings.json", self.settings)
+        await self.bot.edit_message(prompt, "Ok, I've set "+emote+" as the new rank icon for"+str(answer))
+
+    @garprset.command(pass_context=True, name="color")
+    async def color(self, ctx):
+        """Sets the color of the Embed for GarPR ranked (top 100) players.
+        
+        Use a site like color-hex to pick colors. Hex codes will be translated
+        into discord-compatible colors and shown via an example role."""
+        tiers = ["Rank 1", "Rank 2-10", "Rank 11-25", "Rank 26-50", "Rank 51-100"]
+        roles = ctx.message.server.roles
+        roleNames = []
+        coloredRoles = [0,1,2,3,4]
+        msg = "Current settings:\n"
+        for role in roles:
+            roleNames.append(role.name)
+        for index, botRole in enumerate(tiers):
+            if botRole not in roleNames:
+                try:
+                    role = await self.bot.create_role(ctx.message.server, name=botRole, mentionable=True, colour=discord.Colour(self.settings["rank colors"][index]))
+                except:
+                    print("error creating "+botRole)
+            else:
+                await self.bot.edit_role(ctx.message.server, role=roles[roleNames.index(botRole)], colour=discord.Colour(self.settings["rank colors"][index]))
+                role = roles[roleNames.index(botRole)]
+            try:
+                coloredRoles[index] = role
+                msg+="\n("+str(index+1)+") "+role.mention
+            except:
+                print("error editing "+botRole)
+        msg+="\nFrom above, choose an option 1-5 to change!"
+        prompt = await self.bot.say(msg)
+
+        try:
+            answer = await self.bot.wait_for_message(timeout=60, author=ctx.message.author)
+            answer = int(re.sub(r'[^\d]', '', answer.content))
+            if answer < 0 or answer > 5:
+                await self.bot.edit_message(prompt, "Invalid choice")
+                return
+            await self.bot.edit_message(prompt, "Editing color for "+coloredRoles[answer-1].mention+"\nWhich color should display? Use http://www.color-hex.com/ for help!")
+            color = await self.bot.wait_for_message(timeout=60, author=ctx.message.author)
+            color = re.sub("#", '', color.content)
+        except:
+            await self.bot.edit_message(prompt, "Timed out.")
+            return
+        try:
+            self.settings["rank colors"][answer-1] = int(color, 16)
+            await self.bot.edit_role(ctx.message.server, role=coloredRoles[answer-1], colour=discord.Colour(self.settings["rank colors"][answer-1]))
+        except BaseException as e:
+            await self.bot.edit_message(prompt, "Encountered an error while editing color... sorry :(")
+            print(e)
+            return
+        dataIO.save_json(self.resources+"garpr_settings.json", self.settings)
+        await self.bot.edit_message(prompt, "Ok, I've set the new color for "+coloredRoles[answer-1].mention)
 
 # Handles request routing
 class Route:
@@ -216,8 +304,6 @@ class Route:
         self.path = path
         self.headers = headers
         self.method = method
-
-    # Introspection: call the requests.get(url, headers) method
     def sync_query(self, url_params=None):
         result = getattr( requests, self.method.lower() )(
                 self.base_url+self.path, headers=self.headers)
@@ -232,15 +318,15 @@ class Route:
 class ResponseError(BaseException):
     pass
 
-def check_folders():
-    if not os.path.exists(RESOURCES):
+def check_folders(resources_folder):
+    if not os.path.exists(resources_folder):
         print("Creating smashing data folder...")
-        os.makedirs(RESOURCES)
+        os.makedirs(resources_folder)
 
-def check_files():
-    garpr = RESOURCES+"garpr_rankings.json"
-    records = RESOURCES+"garpr_match_records.json"
-    settings = RESOURCES+"garpr_settings.json"
+def check_files(resources_folder):
+    garpr = resources_folder+"garpr_rankings.json"
+    records = resources_folder+"garpr_match_records.json"
+    settings = resources_folder+"garpr_settings.json"
     if not dataIO.is_valid_json(garpr):
         print("Creating empty "+str(garpr)+"...")
         dataIO.save_json(garpr, {})
@@ -248,10 +334,17 @@ def check_files():
         print("Creating empty "+str(records)+"...")
         dataIO.save_json(records, {})
     if not dataIO.is_valid_json(settings):
-        print("Creating empty "+str(settings)+"...")
-        dataIO.save_json(settings, {})
+        print("Creating default "+str(settings)+"...")
+        dataIO.save_json(settings, 
+                {
+                    "region" : "northcarolina",
+                    "tournaments on record" : 0,
+                    "rank emotes" : [":pineapple:", ":apple:", ":tangerine:", ":cherries:"],
+                    "rank colors" : [discord.Colour.dark_green().value,discord.Colour.gold().value,discord.Colour.light_grey().value,discord.Colour.purple().value,"a0522d"]
+                })
 
 def setup(bot):
-    check_folders()
-    check_files()
-    bot.add_cog(GarPR(bot, RESOURCES))
+    resources_folder = "data/smashing/"
+    check_folders(resources_folder)
+    check_files(resources_folder)
+    bot.add_cog(GarPR(bot, resources_folder))
